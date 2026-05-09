@@ -1,53 +1,123 @@
-Backend Serverless para Aplicación Móvil
+# RapidGo · Backend Serverless en Azure
 
+> **Caso 01 — Trabajo Grupal** · Análisis e Implementación de Arquitectura Cloud
+> Computación en la Nube · Semestre 2026-1 · Tecnológico de Antioquia
+> **Profesor:** Julian David Florez Sanchez
+> **Fecha de entrega:** 14 de mayo de 2026
 
+---
 
-Descripción de la empresa 
-RapidGo es una startup colombiana de servicios de domicilios fundada en 2022 que opera actualmente en Medellín, Manizales y Pereira. La plataforma conecta a clientes con restaurantes y tiendas locales a través de una aplicación móvil disponible en Android e iOS, desarrollada en React Native, y cuenta con una red de 340 repartidores activos. En sus primeros dos años de operación, RapidGo procesó en promedio 1.200 pedidos diarios con picos de hasta 4.500 pedidos en días festivos y fines de semana. Su modelo de negocio cobra una comisión del 18% por pedido completado, lo que hace que la disponibilidad del sistema sea directamente proporcional a sus ingresos: cada minuto de caída representa pérdidas estimadas de $180.000 COP en horas pico. 
+## Integrantes del equipo
 
-3.2 Situación tecnológica actual y problemas identificados 
+| Nombre completo | Rol en el proyecto |
+|-----------------|--------------------|
+| Yeifer Andres Castaño Sariego | Backend / Implementación |
+| Juan David Macea | Documentación / Diagramas |
+| [Integrante 3] | [Rol] |
+| [Integrante 4] | [Rol] |
 
-El backend actual es una aplicación monolítica en Node.js desplegada en un servidor dedicado en un datacenter de Medellín. El equipo de tecnología ha documentado los siguientes 
+---
 
-problemas críticos que bloquean el crecimiento de la empresa: 
+## Tabla de contenido
 
-• Escalabilidad manual: en horas pico (12m-2pm y 6pm-9pm) el servidor se satura y el tiempo de respuesta de la API supera los 8 segundos, generando cancelaciones espontáneas de pedidos estimadas en un 12% del tráfico. 
+1. [Contexto del caso](#1-contexto-del-caso)
+2. [Modelo C4](#2-modelo-c4)
+3. [Decisiones arquitectónicas (ADRs)](#3-decisiones-arquitectónicas-adrs)
+4. [Implementación del flujo crítico](#4-implementación-del-flujo-crítico)
+5. [Evidencias](#5-evidencias-de-implementación)
+6. [Conclusiones](#6-conclusiones)
 
-• Costo fijo ineficiente: el servidor dedicado cuesta $4.200.000 COP mensuales independientemente del tráfico. En horas de baja demanda (2am-8am) el uso de CPU no supera el 4%, lo que representa un desperdicio significativo de recursos. 
+---
 
-• Despliegues con tiempo de inactividad: cualquier actualización del backend requiere 2030 minutos de inactividad programada, impactando ventas nocturnas y generando mala 
-experiencia de usuario. 
+## 1. Contexto del caso
 
-• Notificaciones no confiables: el sistema actual de push notifications tiene una tasa de entrega del 67% debido a la falta de integración directa con FCM y APNs, generando 
-confusión en clientes sobre el estado de sus pedidos. 
+### 1.1 Descripción de la empresa
 
-• Sin tolerancia a fallos: no existe redundancia ni plan de recuperación. Un fallo de hardware implica caída total del servicio con tiempos históricos de restauración de 2 a 6 
-horas. 
+RapidGo es una startup colombiana de servicios de domicilios fundada en 2022 que opera actualmente en Medellín, Manizales y Pereira. La plataforma conecta a clientes con restaurantes y tiendas locales a través de una aplicación móvil disponible en Android e iOS, desarrollada en React Native, y cuenta con una red de 340 repartidores activos. En sus primeros dos años de operación, RapidGo procesó en promedio 1.200 pedidos diarios con picos de hasta 4.500 pedidos en días festivos y fines de semana. Su modelo de negocio cobra una comisión del 18% por pedido completado, lo que hace que la disponibilidad del sistema sea directamente proporcional a sus ingresos: cada minuto de caída representa pérdidas estimadas de $180.000 COP en horas pico.
 
-• Deuda técnica en autenticación: el manejo de tokens JWT está implementado de forma artesanal en el monolito, sin un gateway centralizado, lo que dificulta agregar nuevos 
-clientes (app web, API pública) en el futuro. 
+### 1.2 Problemas identificados en la arquitectura actual
 
-3.3 Requerimientos para la nueva arquitectura El equipo directivo de RapidGo ha definido los siguientes requerimientos no funcionales que la 
-nueva arquitectura debe cumplir. El grupo debe verificar en los ADRs que las decisiones 
+El backend actual es una aplicación monolítica en Node.js desplegada en un servidor dedicado en un datacenter de Medellín. Los problemas críticos que bloquean el crecimiento de la empresa son:
 
-Justificación:
+- **Escalabilidad manual:** en horas pico (12m–2pm y 6pm–9pm) el servidor se satura y el tiempo de respuesta de la API supera los 8 segundos, generando cancelaciones espontáneas estimadas en un 12% del tráfico.
+- **Costo fijo ineficiente:** el servidor dedicado cuesta $4.200.000 COP mensuales independientemente del tráfico. En horas de baja demanda (2am–8am) el uso de CPU no supera el 4%.
+- **Despliegues con tiempo de inactividad:** cualquier actualización requiere 20–30 minutos de inactividad programada.
+- **Notificaciones no confiables:** la tasa de entrega es de apenas 67% por la falta de integración directa con FCM y APNs.
+- **Sin tolerancia a fallos:** no hay redundancia ni plan de recuperación. Tiempos históricos de restauración: 2 a 6 horas.
+- **Deuda técnica en autenticación:** JWT implementado de forma artesanal, sin gateway centralizado.
 
-Se identifican tres actores principales: el Cliente, el Repartidor y el Administrador. El Cliente utiliza la aplicación móvil para realizar pedidos y consultar su estado; el Repartidor la usa para gestionar entregas; y el Administrador supervisa la operación general de la plataforma.
+### 1.3 Requerimientos no funcionales
 
-El RapidGo Backend Serverless se ubica como sistema principal porque será el encargado de procesar la lógica de negocio relacionada con pedidos, usuarios, estados de entrega y notificaciones. 
+| Requerimiento       | Métrica objetivo                    | Motivación |
+|---------------------|-------------------------------------|------------|
+| Disponibilidad      | 99.9% mensual                       | Máximo 44 minutos de inactividad al mes |
+| Latencia de API     | < 800 ms en P95                     | Reducir cancelaciones por lentitud |
+| Escalabilidad       | 500 req/seg sin intervención manual | Soportar días festivos y campañas |
+| Modelo de costos    | Pago por uso real                   | Eliminar el costo fijo del servidor dedicado |
+| Despliegue          | Zero-downtime                       | No afectar pedidos en curso |
+| Notificaciones push | Tasa de entrega > 95%               | Mejorar experiencia del cliente |
 
-En este sistema se incluyen externos necesarios para el funcionamiento de la soluciónen en la pasarela de pagos, utilizada para procesar las transacciones de los pedidos; Firebase para enviar notificaciones push a dispositivos Android; y APNs usado para enviar notificaciones push a dispositivos iOS.
+### 1.4 Restricciones del proyecto
 
+- Las Azure Functions deben implementarse en **Node.js o Python** (el equipo no tiene experiencia en Java ni .NET).
+- Presupuesto: máximo **$50 USD/mes** durante la fase piloto. Priorizar tier gratuito.
+- La base de datos actual es MySQL relacional. Cualquier cambio a NoSQL debe justificarse en el ADR-02.
+- Los datos deben almacenarse en la región **Brazil South** o **East US** por latencia y soberanía.
+- La app React Native no se rediseña: se debe mantener compatibilidad con los contratos JSON actuales.
+- El equipo de infraestructura es de una sola persona: minimizar carga operativa.
 
+---
 
-| Requerimiento      | Métrica objetivo                    | Motivación                                                      |
-|--------------------|-------------------------------------|-----------------------------------------------------------------|
-| Disponibilidad     | 99.9% mensual                       | Máximo 44 minutos de inactividad al mes                         |
-| Latencia de API    | < 800 ms en P95                     | Reducir cancelaciones por lentitud del sistema                  |
-| Escalabilidad      | 500 req/seg sin intervención manual | Soportar días festivos y campañas de marketing                  |
-| Modelo de costos   | Pago por uso real                   | Eliminar el costo fijo del servidor dedicado                    |
-| Despliegue         | Zero-downtime                       | No afectar pedidos en curso durante actualizaciones             |
-| Notificaciones push| Tasa de entrega > 95%               | Mejorar experiencia del cliente con estados en tiempo real      |
+## 2. Modelo C4
 
+### C1 — Diagrama de Contexto
 
+![Diagrama C1 - Contexto](./assets/c1-contexto.png)
 
+**Descripción:**
+
+El sistema **RapidGo Backend Serverless** es el responsable de procesar la lógica de negocio relacionada con pedidos, usuarios, estados de entrega y notificaciones.
+
+Se identifican tres actores principales:
+
+- **Cliente:** utiliza la aplicación móvil para realizar pedidos y consultar su estado.
+- **Repartidor:** utiliza la app para gestionar las entregas asignadas.
+- **Administrador:** supervisa la operación general de la plataforma.
+
+Los sistemas externos integrados son:
+
+- **Pasarela de pagos:** procesa las transacciones de los pedidos completados.
+- **Firebase Cloud Messaging (FCM):** entrega notificaciones push a dispositivos Android.
+- **Apple Push Notification Service (APNs):** entrega notificaciones push a dispositivos iOS.
+
+### C2 — Diagrama de Contenedores
+
+*Pendiente*
+
+### C3 — Diagrama de Componentes
+
+*Pendiente*
+
+---
+
+## 3. Decisiones arquitectónicas (ADRs)
+
+*Pendiente*
+
+---
+
+## 4. Implementación del flujo crítico
+
+*Pendiente*
+
+---
+
+## 5. Evidencias de implementación
+
+*Pendiente*
+
+---
+
+## 6. Conclusiones
+
+*Pendiente*
