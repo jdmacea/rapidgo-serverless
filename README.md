@@ -104,8 +104,7 @@ APNs (Apple Push Notification service) — lo mismo pero para iOS. Toda notifica
 ![Diagrama C1 - Contexto](./assets/Diagrama_c2.png)
 
 ### C3 — Diagrama de Componentes
-
-*Pendiente*
+![Diagrama C3 - Contexto](./assets/Diagram_C3.jpg)
 
 ---
 
