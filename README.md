@@ -72,27 +72,36 @@ El backend actual es una aplicación monolítica en Node.js desplegada en un ser
 
 ### C1 — Diagrama de Contexto
 
-![Diagrama C1 - Contexto](./assets/c1-contexto.png)
+![Diagrama C1 - Contexto](./assets/Diagrama_C1.png)
 
-**Descripción:**
+Actores humanos (izquierda — verde azulado)
+Estos son las personas que usan el sistema directamente:
 
-El sistema **RapidGo Backend Serverless** es el responsable de procesar la lógica de negocio relacionada con pedidos, usuarios, estados de entrega y notificaciones.
+Cliente — es el usuario final de la app. Abre la app, elige un restaurante o tienda, hace el pedido y paga. Su único canal de interacción con RapidGo es a través de la app móvil.
 
-Se identifican tres actores principales:
+Repartidor — tiene su propia vista dentro de la misma app. Recibe el pedido asignado y conforme lo lleva, actualiza el estado: "recogido", "en camino", "entregado". Esas actualizaciones son las que disparan las notificaciones al cliente.
 
-- **Cliente:** utiliza la aplicación móvil para realizar pedidos y consultar su estado.
-- **Repartidor:** utiliza la app para gestionar las entregas asignadas.
-- **Administrador:** supervisa la operación general de la plataforma.
+Administrador — es el equipo interno de RapidGo. Configura el sistema: agrega restaurantes, gestiona reportes de ventas, ajusta comisiones, No usa la app móvil sino un panel administrativo.
 
-Los sistemas externos integrados son:
+Sistema central (centro — morado)
+En este momento solo se tiene una idea de lo que se necesita para el C1, ya uqe en el momento solo tiene un nombre y solo importa que existe y tiene nombre.
 
-- **Pasarela de pagos:** procesa las transacciones de los pedidos completados.
-- **Firebase Cloud Messaging (FCM):** entrega notificaciones push a dispositivos Android.
-- **Apple Push Notification Service (APNs):** entrega notificaciones push a dispositivos iOS.
+
+Sistemas externos (derecha — gris)
+
+Estos son sistemas que RapidGo usa pero no controla ni posee:
+
+App móvil (React Native) — es un sistema externo y es el cliente frontend que se comunica con RapidGo via HTTPS. 
+
+Pasarela de pagos — cuando el cliente confirma el pago en la app, la pasarela procesa el cobro y le avisa a RapidGo mediante un webhook (una llamada HTTP automática que dice "el pago fue exitoso"). RapidGo entonces confirma el pedido.
+
+FCM (Firebase Cloud Messaging) — es el servicio de Google que entrega las notificaciones push en Android. RapidGo no le habla directamente a los celulares — le habla a FCM y FCM que se encarga del resto.
+
+APNs (Apple Push Notification service) — lo mismo pero para iOS. Toda notificación que llega a un iPhone pasa por los servidores de Apple. Sin integración directa con APNs.
+
 
 ### C2 — Diagrama de Contenedores
 
-*Pendiente*
 
 ### C3 — Diagrama de Componentes
 
