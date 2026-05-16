@@ -110,9 +110,161 @@ APNs (Apple Push Notification service) — lo mismo pero para iOS. Toda notifica
 
 ## 3. Decisiones arquitectónicas (ADRs)
 
-*Pendiente*
+## ADR-01: Azure Functions vs App Service para la lógica de negocio
 
----
+Fecha:Mayo 2026  
+Estado:Aprobado
+
+Contexto
+RapidGo presenta un patrón de tráfico altamente variable: 1.200 pedidos diarios en promedio con picos de hasta 4.500 en días festivos y fines de semana. El backend monolítico actual en Node.js, desplegado en un servidor dedicado, se satura en horas pico (12m–2pm y 6pm–9pm), superando los 8 segundos de tiempo de respuesta. El costo fijo de $4.200.000 COP mensuales es ineficiente dado que el uso de CPU no supera el 4% en horas de baja demanda. El equipo de desarrollo tiene experiencia en Node.js y Python, y el presupuesto piloto no debe superar los $50 USD mensuales en Azure.
+
+Alternativas evaluadas
+
+Opción A — Azure App Service (Plan Básico)
+
+Ventajas
+* Entorno de ejecución permanente, sin cold starts [1]
+* Soporte nativo para Node.js y Python
+
+Desventajas
+* Costo fijo mensual (~$13–$55 USD en tier básico), incompatible con el modelo de pago por uso requerido
+* El escalado automático requiere configuración manual de reglas; no escala desde cero ante picos abruptos [1]
+* No elimina el problema de costo en horas de baja demanda
+
+
+Opción B — Azure Functions (Consumption Plan)
+
+Ventajas
+* Escalado automático de 0 a N instancias sin intervención manual, basado en eventos [2]
+* Modelo de pago por ejecución: 1 millón de ejecuciones/mes incluidas gratis [3]
+* Zero-downtime en despliegues mediante deployment slots [4]
+* Compatible con Node.js y Python
+* Sin administración de servidores ni clusters
+
+Desventajas
+* Cold starts: latencia adicional en la primera ejecución tras inactividad, dado que el Consumption Plan escala desde cero [2]
+* Tiempo máximo de ejecución de 10 minutos por función en Consumption Plan [1]
+ 
+Decisión
+
+Se elige Azure Functions con Consumption Plan.
+
+El modelo de costos por ejecución resuelve directamente el desperdicio del 96% de capacidad en horas de baja demanda. El escalado automático basado en eventos garantiza el requerimiento de soportar 500 req/seg sin intervención manual durante días festivos [2]. El tier gratuito de 1M ejecuciones/mes se alinea con el presupuesto piloto de $50 USD [3].
+
+Consecuencias
+Ventajas:Eliminación del costo fijo, escalado automático en picos, despliegues sin downtime, sin gestión de infraestructura.
+Trade-offs:Los cold starts pueden introducir latencia en las primeras solicitudes tras inactividad. Según la documentación oficial, el Consumption Plan no soporta la opción "Always On"; para eliminar cold starts completamente sería necesario migrar al Premium Plan [1][2].
+
+### Referencias
+
+- [1] Microsoft Learn — *Azure Functions Premium plan*: https://learn.microsoft.com/es-es/azure/azure-functions/functions-premium-plan
+- [2] Microsoft Learn — *Event-driven scaling in Azure Functions*: https://learn.microsoft.com/es-es/azure/azure-functions/event-driven-scaling
+- [3] Microsoft Learn — *Azure Functions overview*: https://learn.microsoft.com/es-es/azure/azure-functions/functions-overview
+- [4] Microsoft Learn — *Azure Functions best practices*: https://learn.microsoft.com/es-es/azure/azure-functions/functions-best-practices
+
+
+
+## ADR-02: Cosmos DB vs Azure SQL Database para la persistencia de pedidos
+
+Fecha:Mayo 2026  
+Estado:Aprobado
+
+Contexto
+La base de datos actual de RapidGo es MySQL relacional con 3 años de datos históricos. El nuevo sistema debe soportar atributos variables por tipo de negocio (restaurantes vs. tiendas), alta disponibilidad (99.9%), baja latencia de escritura y lectura, y escalado automático. Los datos de usuarios colombianos deben residir en las regiones Brazil South o East US. El presupuesto piloto limita el gasto a $50 USD mensuales.
+
+Alternativas evaluadas
+Opción A — Azure SQL Database (Free Tier)
+
+Ventajas
+* Modelo relacional familiar, compatible con la estructura MySQL actual
+* Free tier de 32 GB disponible, sin costo en fase piloto
+* Consultas SQL estándar, sin curva de aprendizaje adicional
+
+Desventajas
+* Esquema rígido: cada tipo de negocio requeriría tablas o columnas adicionales para atributos específicos
+* Escalado vertical manual en el tier gratuito
+* Menor rendimiento en escrituras concurrentes masivas
+
+Opción B — Azure Cosmos DB (Free Tier)
+
+Ventajas
+* Modelo de documento flexible (schema-agnostic): cada pedido puede tener atributos distintos según el tipo de negocio sin alterar el esquema [5]
+* Latencia de lectura y escritura garantizada en single-digit milliseconds en el percentil 99 [6]
+* Free tier permanente: 1.000 RU/s y 25 GB sin costo [7]
+* Distribución global con réplicas en Brazil South y East US, cumpliendo la restricción de soberanía de datos [7]
+* Escalado horizontal automático mediante particionamiento
+
+Desventajas
+* Cambio de paradigma relacional a NoSQL: requiere migración y rediseño del modelo de datos
+* Las consultas complejas con múltiples JOINs son menos eficientes que en SQL [5]
+
+Decisión
+
+Se elige Azure Cosmos DB con Free Tier.
+
+El modelo de documento es más adecuado para la naturaleza variable de los pedidos de RapidGo. Según la documentación oficial, Cosmos DB garantiza latencias de lectura y escritura menores a 10ms en el percentil 99 [6], cumpliendo el requerimiento de latencia de API < 800ms en P95. La distribución global nativa garantiza el cumplimiento de la restricción de soberanía de datos. El free tier cubre completamente las necesidades de la fase piloto [7].
+
+Consecuencias
+Ventajas:Esquema flexible, latencia baja garantizada por SLA, escalado sin intervención manual, cumplimiento de soberanía de datos.
+Trade-offs:Se asume la deuda técnica de migrar 3 años de datos históricos desde MySQL. Las consultas analíticas complejas requerirán estrategias adicionales como exportaciones periódicas.
+
+### Referencias
+
+- [5] Microsoft Learn — *Azure Cosmos DB introduction*: https://learn.microsoft.com/es-es/azure/cosmos-db/introduction
+- [6] Microsoft Learn — *Consistency levels in Azure Cosmos DB*: https://learn.microsoft.com/es-es/azure/cosmos-db/consistency-levels
+- [7] Microsoft Learn — *Azure Cosmos DB free tier*: https://learn.microsoft.com/es-es/azure/cosmos-db/free-tier
+
+
+## ADR-03: API Management vs exposición directa de Azure Functions
+
+Fecha:Mayo 2026  
+Estado:Aprobado
+
+Contexto:
+La app móvil de RapidGo en React Native realiza llamadas directas a la API del backend. La arquitectura actual carece de un gateway centralizado, lo que ha generado deuda técnica en autenticación JWT implementada de forma artesanal. El nuevo sistema debe gestionar autenticación, throttling por usuario, versionado de API y mantener compatibilidad con los contratos de endpoints actuales. El equipo de infraestructura es de una sola persona.
+
+Alternativas evaluadas
+
+Opción A — Exposición directa de Azure Functions (HTTP Trigger)
+
+Ventajas
+* Configuración mínima, sin servicios adicionales
+* Menor latencia al eliminar un salto de red intermedio
+* Sin costo adicional
+
+Desventajas
+* Cada función debe implementar su propia lógica de autenticación JWT, duplicando código
+* Sin throttling centralizado
+* Sin versionado de API: cualquier cambio de contrato rompe la app móvil
+* Dificulta agregar futuros clientes sin refactorizar cada función
+
+Opción B — Azure API Management (Developer Tier)
+
+Ventajas
+* Punto de entrada único para todos los clientes [8]
+* Gestión centralizada de autenticación JWT mediante políticas de validación de tokens [8]
+* Throttling configurable por usuario o suscripción [8]
+* Versionado de API sin afectar los contratos actuales de la app móvil [8]
+* Portal de desarrolladores y documentación automática de endpoints
+
+Desventajas
+* Developer tier tiene costo (~$50 USD/mes), ajustado al límite del presupuesto piloto
+* Latencia adicional de ~20–50ms por el salto extra del gateway [8]
+
+
+Decisión
+
+Se elige Azure API Management en Developer Tier.
+
+Centralizar la autenticación JWT en API Management elimina la deuda técnica documentada. Según la documentación oficial, API Management actúa como fachada para las APIs de backend, permitiendo gestionar autenticación, throttling y versionado desde un único punto [8]. El versionado garantiza compatibilidad con la app móvil existente mientras se introducen mejoras en la API.
+
+Consecuencias
+Ventajas:Autenticación centralizada, protección ante sobrecarga, versionado de API, base para agregar nuevos clientes.
+Trade-offs:El Developer tier consume la mayor parte del presupuesto piloto. En producción se evaluará el tier Consumption de API Management por su modelo de pago por llamada.
+
+Referencias
+- [8] Microsoft Learn — *Azure API Management key concepts*: https://learn.microsoft.com/es-es/azure/api-management/api-management-key-concepts
+
 
 ## 4. Implementación del flujo crítico
 
