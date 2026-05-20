@@ -262,8 +262,109 @@ Consecuencias
 Ventajas:Autenticación centralizada, protección ante sobrecarga, versionado de API, base para agregar nuevos clientes.
 Trade-offs:El Developer tier consume la mayor parte del presupuesto piloto. En producción se evaluará el tier Consumption de API Management por su modelo de pago por llamada.
 
-Referencias
+## Referencias
 - [8] Microsoft Learn — *Azure API Management key concepts*: https://learn.microsoft.com/es-es/azure/api-management/api-management-key-concepts
+
+
+## ADR-04: Blob Storage vs Azure Files para almacenamiento de archivos
+
+Fecha:Mayo 2026  
+Estado:Aprobado
+
+Contexto:
+RapidGo necesita almacenar fotos de comprobantes de entrega, imágenes de productos y exports de reportes operacionales. Los archivos son generados desde la app móvil (imágenes JPEG) y desde las Azure Functions (reportes CSV). El acceso es predominantemente de escritura única y lectura ocasional vía HTTP. El presupuesto piloto exige minimizar costos de almacenamiento.
+
+Alternativas evaluadas
+
+Opción A — Azure Files
+Ventajas
+* Acceso mediante protocolo SMB/NFS, ideal para sistemas de archivos compartidos montados por múltiples servicios [9]
+* Útil cuando múltiples servicios necesitan acceso concurrente de lectura/escritura como un disco compartido
+
+Desventajas
+* Costo mayor: ~$0.06 USD/GB/mes en tier estándar, significativamente más alto que Blob Storage [9]
+* No optimizado para acceso HTTP directo a objetos estáticos como imágenes
+* Protocolo SMB innecesario para el caso de uso de RapidGo
+
+
+Opción B — Azure Blob Storage (LRS Standard)
+Venatajas
+* Diseñado para almacenamiento de objetos no estructurados: imágenes, videos, documentos [10]
+* Acceso HTTP/HTTPS directo mediante URLs firmadas (SAS tokens), sin intermediarios [10]
+* Tier LRS es el más económico: ~$0.018 USD/GB/mes [10]
+* Integración nativa con Azure Functions mediante output bindings
+* Soporte para políticas de ciclo de vida: mover archivos a tier frío (Cool/Archive) automáticamente [10]
+
+Desventajas
+* Sin soporte para protocolo SMB (no requerido por RapidGo)
+
+
+Decisión
+
+Se elige Azure Blob Storage con tier LRS Standard.
+
+El patrón de acceso de RapidGo (escritura desde app móvil, lectura ocasional vía URL HTTP) corresponde exactamente al caso de uso de Blob Storage [10]. Los SAS tokens permiten que la app móvil suba fotos directamente a Blob Storage sin consumir recursos de las Azure Functions. El costo LRS Standard es aproximadamente 3 veces menor que Azure Files.
+
+Consecuencias
+Ventajas: Costo mínimo de almacenamiento, acceso HTTP directo, integración nativa con Functions, ciclo de vida automático de archivos.
+Trade-offs: La redundancia LRS protege contra fallos de hardware en un datacenter pero no ante fallos de zona completa. En producción se evaluará ZRS para mayor resiliencia.
+
+### Referencias
+
+- [9] Microsoft Learn — *Introduction to Azure Files*: https://learn.microsoft.com/es-es/azure/storage/files/storage-files-introduction
+- [10] Microsoft Learn — *Introduction to Azure Blob Storage*: https://learn.microsoft.com/es-es/azure/storage/blobs/storage-blobs-introduction
+
+
+## ADR-05: Notification Hubs vs Azure Communication Services para notificaciones push
+
+Fecha: Mayo 2026  
+Estado: Aprobado
+
+Contexto
+
+El sistema actual de push notifications de RapidGo tiene una tasa de entrega del 67% debido a la falta de integración directa con FCM (Firebase Cloud Messaging) y APNs (Apple Push Notification service). El requerimiento es alcanzar una tasa de entrega superior al 95%. Las notificaciones deben enviarse en tiempo real cuando cambia el estado de un pedido (confirmado → en camino → entregado). La app móvil está en React Native y no se rediseñará.
+
+Alternativas evaluadas
+
+Opción A — Azure Communication Services (ACS)
+Ventajas
+* Servicio unificado para múltiples canales: SMS, email, voz, chat y push notifications [11]
+* SDK moderno con soporte para React Native
+* Útil si RapidGo planea expandir canales de comunicación en el futuro
+
+Desventajas
+* La funcionalidad de push notifications en ACS tiene menor madurez comparada con Notification Hubs para envíos masivos [11]
+* Costo por notificación más elevado para volúmenes altos
+* Configuración más compleja para integración directa con FCM y APNs
+
+Opción B — Azure Notification Hubs
+Ventajas
+* Diseñado específicamente para envío masivo de push notifications a Android (FCM) y iOS (APNs) [12]
+* Free tier incluye 1 millón de notificaciones/mes [12]
+* Integración directa y documentada con FCM y APNs, resolviendo la causa raíz de la baja tasa de entrega [12]
+* Soporte para notificaciones segmentadas por etiquetas (tags), permitiendo notificar solo al cliente de un pedido específico [12]
+* Servicio maduro disponible en Azure desde 2014
+
+Desventajas
+* Servicio especializado únicamente en push notifications; no cubre SMS ni email [12]
+* Requiere configurar un proyecto Firebase (FCM) gratuito como proveedor Android
+
+
+Decisión
+
+Se elige Azure Notification Hubs con Free Tier.
+
+La causa documentada de la baja tasa de entrega (67%) es la ausencia de integración directa con FCM y APNs. Según la documentación oficial, Notification Hubs provee integración nativa con ambas plataformas y soporte para notificaciones segmentadas [12], lo que resuelve directamente el problema. El free tier de 1M notificaciones/mes supera ampliamente el volumen estimado de RapidGo: 4.500 pedidos/día × 3 estados × 30 días = ~405.000 notificaciones/mes.
+
+Consecuencias
+Ventajas: Integración nativa con FCM y APNs, tasa de entrega esperada >95%, free tier suficiente para fase piloto, notificaciones segmentadas por cliente.
+Trade-offs: Notification Hubs cubre únicamente el canal push. Si RapidGo requiere SMS o email transaccional en el futuro, deberá incorporar ACS como servicio complementario.
+
+### Referencias
+
+- [11] Microsoft Learn — *Azure Communication Services overview*: https://learn.microsoft.com/es-es/azure/communication-services/overview
+- [12] Microsoft Learn — *Azure Notification Hubs overview*: https://learn.microsoft.com/es-es/azure/notification-hubs/notification-hubs-push-notification-overview
+
 
 
 ## 4. Implementación del flujo crítico
