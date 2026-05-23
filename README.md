@@ -447,7 +447,7 @@ El flujo fue ejecutado y verificado el 23 de mayo de 2026 contra los servicios r
 - **Notificación enviada:** `success: true` vía Azure Notification Hubs
 
 ---
-
+## 5. Evidencias de implementación
 ### 5.1 Grupo de Recursos
 
 El grupo de recursos `rg-rapidgo-piloto` consolida los 5 servicios del piloto
@@ -494,36 +494,64 @@ Almacena logs de ejecución de las Functions y comprobantes de entrega.
 
 ### 5.4 Azure Functions
 
-#### Aplicación de funciones
-La Function App se desplegó en plan **Consumption** en `rg-rapidgo-piloto`,
-garantizando escalado automático y facturación únicamente por ejecuciones reales.
+#### 4 funciones desplegadas y habilitadas
+Las 4 functions están en estado **Habilitada** con trigger HTTP, confirmando
+el despliegue exitoso en el plan Consumption.
 
-![Azure Functions - Implementación](assets/evidencia-functions-creado.png)
+![Azure Functions - Funciones desplegadas](assets/evidencia-functions-desplegadas.png)
 
-#### registrarPedido
-Valida `clienteId`, `productos` y `direccionEntrega`. Crea el documento con
-`id: pedido-${Date.now()}` y estado inicial `"confirmado"` en Cosmos DB.
+#### Variables de entorno configuradas
+Las variables `COSMOS_CONNECTION_STRING`, `NOTIFICATION_HUB_CONNECTION_STRING`
+y `NOTIFICATION_HUB_NAME` fueron configuradas directamente en Azure via CLI,
+sin exponer credenciales en el código fuente.
 
-![Código - registrarPedido](assets/evidencia-code-registrar.png)
+![Azure Functions - Variables de entorno](assets/evidencia-env-vars.png)
 
-#### actualizarEstado
-Valida el nuevo estado contra la lista permitida (`confirmado`, `en_preparacion`,
-`en_camino`, `entregado`, `cancelado`) y actualiza el documento con `upsert`.
+#### Invocaciones de registrarPedido
+El monitor de invocaciones confirma **2 ejecuciones exitosas** y **0 errores**
+en los últimos 30 días. El código 201 corresponde a un pedido creado
+correctamente; el código 400 confirma que la validación de campos funciona.
 
-![Código - actualizarEstado](assets/evidencia-code-actualizar.png)
+![Azure Functions - Invocaciones](assets/evidencia-invocaciones.png)
 
-#### consultarHistorial
-Ejecuta `SELECT * FROM c WHERE c.clienteId = @clienteId` en Cosmos DB y
-retorna el total de pedidos y el listado completo del cliente.
+---
 
-![Código - consultarHistorial](assets/evidencia-code-historial.png)
+### 5.5 Documento persistido en Cosmos DB
 
-#### notificarCliente
-Construye el payload de notificación push con título "RapidGo - Actualización
-de pedido" y lo envía a Azure Notification Hubs, que enruta internamente a
-FCM (Android) o APNs (iOS).
+El pedido `pedido-1779524788130` fue creado por `registrarPedido` y actualizado
+por `actualizarEstado`. El documento muestra el estado final `en_camino` con
+`fechaActualizacion` registrada, confirmando que ambas functions operaron
+correctamente sobre Cosmos DB.
 
-![Código - notificarCliente](assets/evidencia-code-notificar.png)
+![Cosmos DB - Documento del pedido](assets/evidencia-cosmos-pedido.png)
+
+---
+
+### 5.6 Flujo completo probado con Postman
+
+#### Paso 1 — registrarPedido (201 Created, 686ms)
+Pedido creado con productos, dirección y estado inicial `confirmado`.
+
+![Postman - Paso 1 registrarPedido](assets/evidencia-postman-paso1.png)
+
+#### Paso 2 — actualizarEstado (200 OK, 621ms)
+Estado actualizado a `en_camino`. El `pedidoId` fue pasado automáticamente
+desde la variable de colección guardada en el paso anterior.
+
+![Postman - Paso 2 actualizarEstado](assets/evidencia-postman-paso2.png)
+
+#### Paso 3 — consultarHistorial (200 OK, 217ms)
+Retorna `total: 2` pedidos del cliente. Se confirma que el estado `en_camino`
+quedó persistido correctamente en Cosmos DB.
+
+![Postman - Paso 3 consultarHistorial](assets/evidencia-postman-paso3.png)
+
+#### Paso 4 — notificarCliente (200 OK, 108ms)
+Notificación enviada exitosamente. `success: true` y
+`canal: "Azure Notification Hubs → FCM/APNs"` confirman la integración
+completa con el servicio de notificaciones.
+
+![Postman - Paso 4 notificarCliente](assets/evidencia-postman-paso4.png)
 
 ---
 
