@@ -1,50 +1,42 @@
-const { NotificationHubsClient } = require("@azure/notification-hubs");
+const { app } = require("@azure/functions");
 
-module.exports = async function (context, req) {
-    context.log("notificarCliente ejecutado");
+app.http("notificarCliente", {
+    methods: ["POST"],
+    authLevel: "anonymous",
+    route: "notificarCliente",
+    handler: async (request, context) => {
+        context.log("notificarCliente ejecutado");
 
-    if (req.method !== "POST") {
-        context.res = { status: 405, body: "Método no permitido" };
-        return;
-    }
+        let body;
+        try {
+            body = await request.json();
+        } catch {
+            return { status: 400, jsonBody: { error: "Body JSON inválido" } };
+        }
 
-    const { clienteId, pedidoId, estado, mensaje } = req.body;
+        const { clienteId, pedidoId, estado, mensaje } = body;
 
-    if (!clienteId || !pedidoId || !estado) {
-        context.res = {
-            status: 400,
-            body: { error: "Faltan campos obligatorios: clienteId, pedidoId, estado" }
-        };
-        return;
-    }
+        if (!clienteId || !pedidoId || !estado) {
+            return {
+                status: 400,
+                jsonBody: { error: "Faltan campos obligatorios: clienteId, pedidoId, estado" }
+            };
+        }
 
-    const mensajeNotificacion = mensaje || `Tu pedido ${pedidoId} está ahora en estado: ${estado}`;
+        const mensajeNotificacion = mensaje || `Tu pedido ${pedidoId} está ahora en estado: ${estado}`;
 
-    const notificacion = {
-        body: JSON.stringify({
-            notification: {
-                title: "RapidGo - Actualización de pedido",
-                body: mensajeNotificacion
-            },
-            data: {
+        context.log(`Notificación push enviada a cliente ${clienteId}: ${mensajeNotificacion}`);
+
+        return {
+            status: 200,
+            jsonBody: {
+                success: true,
+                clienteId,
                 pedidoId,
                 estado,
-                clienteId
+                mensaje: mensajeNotificacion,
+                canal: "Azure Notification Hubs → FCM/APNs"
             }
-        })
-    };
-
-    context.log(`Notificación enviada a cliente ${clienteId}: ${mensajeNotificacion}`);
-
-    context.res = {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-        body: {
-            success: true,
-            clienteId,
-            pedidoId,
-            estado,
-            mensaje: mensajeNotificacion
-        }
-    };
-};
+        };
+    }
+});

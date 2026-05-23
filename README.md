@@ -369,7 +369,82 @@ Trade-offs: Notification Hubs cubre únicamente el canal push. Si RapidGo requie
 
 ## 4. Implementación del flujo crítico
 
-*Pendiente*
+### 4.1 Descripción del flujo
+
+El flujo crítico de RapidGo cubre el ciclo de vida completo de un pedido: desde su registro hasta la notificación push al cliente. Las 4 Azure Functions desplegadas en el plan Consumption implementan cada paso de forma independiente y desacoplada.
+
+| Paso | Método | Function | Acción |
+|------|--------|----------|--------|
+| 1 | POST | `registrarPedido` | Crea el pedido en Cosmos DB con estado `confirmado` |
+| 2 | PUT | `actualizarEstado` | Cambia el estado del pedido (ej. `en_camino`) |
+| 3 | GET | `consultarHistorial` | Retorna todos los pedidos de un cliente ordenados por fecha |
+| 4 | POST | `notificarCliente` | Envía push notification vía Azure Notification Hubs |
+
+### 4.2 URLs de las functions desplegadas
+
+| Function | Método | URL |
+|----------|--------|-----|
+| registrarPedido | POST | `https://func-rapidgo-piloto-f4haf8ftbehkgzf0.eastus2-01.azurewebsites.net/api/registrarpedido` |
+| actualizarEstado | PUT | `https://func-rapidgo-piloto-f4haf8ftbehkgzf0.eastus2-01.azurewebsites.net/api/actualizarestado/{id}` |
+| consultarHistorial | GET | `https://func-rapidgo-piloto-f4haf8ftbehkgzf0.eastus2-01.azurewebsites.net/api/consultarhistorial?clienteId={id}` |
+| notificarCliente | POST | `https://func-rapidgo-piloto-f4haf8ftbehkgzf0.eastus2-01.azurewebsites.net/api/notificarcliente` |
+
+### 4.3 Prueba del flujo con curl
+
+**Paso 1 — Registrar pedido**
+
+```bash
+curl -X POST https://func-rapidgo-piloto-f4haf8ftbehkgzf0.eastus2-01.azurewebsites.net/api/registrarpedido \
+  -H "Content-Type: application/json" \
+  -d '{
+    "clienteId": "cliente-001",
+    "restauranteId": "rest-001",
+    "productos": [{"nombre": "Hamburguesa", "precio": 25000, "cantidad": 1}],
+    "direccionEntrega": "Calle 50 #10-20, Medellin"
+  }'
+```
+
+Respuesta esperada: `HTTP 201` con el pedido creado y `"estado": "confirmado"`. Guardar el campo `id` para los siguientes pasos.
+
+**Paso 2 — Actualizar estado**
+
+```bash
+curl -X PUT https://func-rapidgo-piloto-f4haf8ftbehkgzf0.eastus2-01.azurewebsites.net/api/actualizarestado/{pedidoId} \
+  -H "Content-Type: application/json" \
+  -d '{"clienteId": "cliente-001", "estado": "en_camino"}'
+```
+
+Estados válidos: `confirmado` | `en_preparacion` | `en_camino` | `entregado` | `cancelado`
+
+**Paso 3 — Consultar historial**
+
+```bash
+curl -X GET "https://func-rapidgo-piloto-f4haf8ftbehkgzf0.eastus2-01.azurewebsites.net/api/consultarhistorial?clienteId=cliente-001"
+```
+
+Respuesta esperada: `HTTP 200` con `total` y array de `pedidos` ordenados por fecha descendente.
+
+**Paso 4 — Notificar cliente**
+
+```bash
+curl -X POST https://func-rapidgo-piloto-f4haf8ftbehkgzf0.eastus2-01.azurewebsites.net/api/notificarcliente \
+  -H "Content-Type: application/json" \
+  -d '{
+    "clienteId": "cliente-001",
+    "pedidoId": "{pedidoId}",
+    "estado": "en_camino",
+    "mensaje": "Tu pedido ya va en camino!"
+  }'
+```
+
+### 4.4 Evidencia de ejecución exitosa
+
+El flujo fue ejecutado y verificado el 23 de mayo de 2026 contra los servicios reales en Azure:
+
+- **Pedido creado:** `pedido-1779524788130` en Cosmos DB (`rapidgo-db` / `pedidos`)
+- **Estado actualizado:** `confirmado` → `en_camino` con `fechaActualizacion` registrada
+- **Historial consultado:** 1 pedido retornado para `cliente-001`
+- **Notificación enviada:** `success: true` vía Azure Notification Hubs
 
 ---
 

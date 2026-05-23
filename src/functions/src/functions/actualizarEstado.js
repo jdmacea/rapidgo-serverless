@@ -1,52 +1,58 @@
+const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 
 const client = new CosmosClient(process.env.COSMOS_CONNECTION_STRING);
 const database = client.database("rapidgo-db");
 const container = database.container("pedidos");
 
-module.exports = async function (context, req) {
-    context.log("actualizarEstado ejecutado");
+const ESTADOS_VALIDOS = ["confirmado", "en_preparacion", "en_camino", "entregado", "cancelado"];
 
-    if (req.method !== "PUT") {
-        context.res = { status: 405, body: "Método no permitido" };
-        return;
-    }
+app.http("actualizarEstado", {
+    methods: ["PUT"],
+    authLevel: "anonymous",
+    route: "actualizarEstado/{id}",
+    handler: async (request, context) => {
+        context.log("actualizarEstado ejecutado");
 
-    const pedidoId = req.params.id;
-    const { estado, clienteId } = req.body;
+        const pedidoId = request.params.id;
 
-    if (!pedidoId || !estado || !clienteId) {
-        context.res = {
-            status: 400,
-            body: { error: "Faltan campos obligatorios: id, estado, clienteId" }
+        let body;
+        try {
+            body = await request.json();
+        } catch {
+            return { status: 400, jsonBody: { error: "Body JSON inválido" } };
+        }
+
+        const { estado, clienteId } = body;
+
+        if (!pedidoId || !estado || !clienteId) {
+            return {
+                status: 400,
+                jsonBody: { error: "Faltan campos obligatorios: id (en URL), estado, clienteId" }
+            };
+        }
+
+        if (!ESTADOS_VALIDOS.includes(estado)) {
+            return {
+                status: 400,
+                jsonBody: { error: `Estado inválido. Valores permitidos: ${ESTADOS_VALIDOS.join(", ")}` }
+            };
+        }
+
+        const { resource: pedido } = await container.item(pedidoId, clienteId).read();
+
+        if (!pedido) {
+            return { status: 404, jsonBody: { error: "Pedido no encontrado" } };
+        }
+
+        pedido.estado = estado;
+        pedido.fechaActualizacion = new Date().toISOString();
+
+        const { resource: updated } = await container.items.upsert(pedido);
+
+        return {
+            status: 200,
+            jsonBody: updated
         };
-        return;
     }
-
-    const estadosValidos = ["confirmado", "en_preparacion", "en_camino", "entregado", "cancelado"];
-    if (!estadosValidos.includes(estado)) {
-        context.res = {
-            status: 400,
-            body: { error: `Estado inválido. Valores permitidos: ${estadosValidos.join(", ")}` }
-        };
-        return;
-    }
-
-    const { resource: pedido } = await container.item(pedidoId, clienteId).read();
-
-    if (!pedido) {
-        context.res = { status: 404, body: { error: "Pedido no encontrado" } };
-        return;
-    }
-
-    pedido.estado = estado;
-    pedido.fechaActualizacion = new Date().toISOString();
-
-    const { resource: updated } = await container.items.upsert(pedido);
-
-    context.res = {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-        body: updated
-    };
-};
+});

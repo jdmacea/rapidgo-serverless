@@ -1,0 +1,166 @@
+{
+  "info": {
+    "name": "RapidGo - Azure Functions API",
+    "description": "Colección para probar las 4 Azure Functions del piloto RapidGo. Flujo: registrarPedido → actualizarEstado → consultarHistorial → notificarCliente",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://func-rapidgo-piloto-f4haf8ftbehkgzf0.eastus2-01.azurewebsites.net/api",
+      "type": "string"
+    },
+    {
+      "key": "pedidoId",
+      "value": "",
+      "type": "string",
+      "description": "Se actualiza automáticamente al ejecutar registrarPedido"
+    },
+    {
+      "key": "clienteId",
+      "value": "cliente-001",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. registrarPedido",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const res = pm.response.json();",
+              "if (res.id) {",
+              "    pm.collectionVariables.set('pedidoId', res.id);",
+              "    pm.collectionVariables.set('clienteId', res.clienteId);",
+              "    console.log('pedidoId guardado:', res.id);",
+              "}",
+              "pm.test('Status 201', () => pm.response.to.have.status(201));",
+              "pm.test('Tiene id', () => pm.expect(res.id).to.include('pedido-'));",
+              "pm.test('Estado inicial confirmado', () => pm.expect(res.estado).to.eql('confirmado'));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"clienteId\": \"{{clienteId}}\",\n  \"restauranteId\": \"rest-001\",\n  \"productos\": [\n    { \"nombre\": \"Hamburguesa Clásica\", \"precio\": 25000, \"cantidad\": 1 },\n    { \"nombre\": \"Papas Fritas\", \"precio\": 8000, \"cantidad\": 2 }\n  ],\n  \"direccionEntrega\": \"Calle 50 #10-20, Medellín\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/registrarpedido",
+          "host": ["{{baseUrl}}"],
+          "path": ["registrarpedido"]
+        },
+        "description": "Crea un nuevo pedido en Cosmos DB con estado inicial 'confirmado'. El id generado se guarda automáticamente en la variable {{pedidoId}}."
+      }
+    },
+    {
+      "name": "2. actualizarEstado",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const res = pm.response.json();",
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('Estado actualizado', () => pm.expect(res.estado).to.eql('en_camino'));",
+              "pm.test('Tiene fechaActualizacion', () => pm.expect(res.fechaActualizacion).to.be.a('string'));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"clienteId\": \"{{clienteId}}\",\n  \"estado\": \"en_camino\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/actualizarestado/{{pedidoId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["actualizarestado", "{{pedidoId}}"]
+        },
+        "description": "Actualiza el estado del pedido. Estados válidos: confirmado | en_preparacion | en_camino | entregado | cancelado"
+      }
+    },
+    {
+      "name": "3. consultarHistorial",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const res = pm.response.json();",
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('Retorna total', () => pm.expect(res.total).to.be.a('number'));",
+              "pm.test('Retorna array de pedidos', () => pm.expect(res.pedidos).to.be.an('array'));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/consultarhistorial?clienteId={{clienteId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["consultarhistorial"],
+          "query": [
+            { "key": "clienteId", "value": "{{clienteId}}" }
+          ]
+        },
+        "description": "Retorna todos los pedidos de un cliente ordenados por fecha de creación descendente."
+      }
+    },
+    {
+      "name": "4. notificarCliente",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const res = pm.response.json();",
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('Success true', () => pm.expect(res.success).to.be.true);",
+              "pm.test('Tiene mensaje', () => pm.expect(res.mensaje).to.be.a('string'));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"clienteId\": \"{{clienteId}}\",\n  \"pedidoId\": \"{{pedidoId}}\",\n  \"estado\": \"en_camino\",\n  \"mensaje\": \"Tu pedido ya va en camino!\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/notificarcliente",
+          "host": ["{{baseUrl}}"],
+          "path": ["notificarcliente"]
+        },
+        "description": "Envía notificación push al cliente vía Azure Notification Hubs (FCM para Android, APNs para iOS)."
+      }
+    }
+  ]
+}
