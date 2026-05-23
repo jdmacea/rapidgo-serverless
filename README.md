@@ -373,12 +373,124 @@ Trade-offs: Notification Hubs cubre únicamente el canal push. Si RapidGo requie
 
 ---
 
-## 5. Evidencias de implementación
+### 5.1 Grupo de Recursos
 
-*Pendiente*
+El grupo de recursos `rg-rapidgo-piloto` consolida los 5 servicios del piloto
+en la región East US 2, permitiendo gestión unificada y eliminación limpia del
+entorno de pruebas.
+
+![Grupo de Recursos Azure](assets/evidencia-grupo-recursos.png)
+
+---
+
+### 5.2 Azure Cosmos DB
+
+#### Implementación completada
+La cuenta `cosmos-rapidgo-piloto` se desplegó exitosamente en `rg-rapidgo-piloto`
+bajo la suscripción *Azure for Students*.
+
+![Cosmos DB - Implementación](assets/evidencia-cosmos-creado.png)
+
+#### Panel principal
+Estado **En línea**, modo de capacidad **Sin servidor** (Serverless), región
+**East US 2**. El URI `https://cosmos-rapidgo-piloto.documents.azure.com:443/`
+es el endpoint que usan las Azure Functions para conectarse a la base de datos.
+
+![Cosmos DB - Panel](assets/evidencia-cosmos-panel.png)
+
+#### Base de datos y contenedor
+Se creó la base de datos `rapidgo-db` con el contenedor `pedidos` usando
+`/clienteId` como clave de partición. Esta elección agrupa físicamente todos
+los pedidos de un mismo cliente en una partición, optimizando la latencia de
+las consultas de historial.
+
+![Cosmos DB - Contenedor](assets/evidencia-cosmos-contenedor.png)
+
+---
+
+### 5.3 Azure Blob Storage
+
+La cuenta `strapidgopiloto` se desplegó correctamente en `rg-rapidgo-piloto`.
+Almacena logs de ejecución de las Functions y comprobantes de entrega.
+
+![Blob Storage - Implementación](assets/evidencia-storage-creado.png)
+
+---
+
+### 5.4 Azure Functions
+
+#### Aplicación de funciones
+La Function App se desplegó en plan **Consumption** en `rg-rapidgo-piloto`,
+garantizando escalado automático y facturación únicamente por ejecuciones reales.
+
+![Azure Functions - Implementación](assets/evidencia-functions-creado.png)
+
+#### registrarPedido
+Valida `clienteId`, `productos` y `direccionEntrega`. Crea el documento con
+`id: pedido-${Date.now()}` y estado inicial `"confirmado"` en Cosmos DB.
+
+![Código - registrarPedido](assets/evidencia-code-registrar.png)
+
+#### actualizarEstado
+Valida el nuevo estado contra la lista permitida (`confirmado`, `en_preparacion`,
+`en_camino`, `entregado`, `cancelado`) y actualiza el documento con `upsert`.
+
+![Código - actualizarEstado](assets/evidencia-code-actualizar.png)
+
+#### consultarHistorial
+Ejecuta `SELECT * FROM c WHERE c.clienteId = @clienteId` en Cosmos DB y
+retorna el total de pedidos y el listado completo del cliente.
+
+![Código - consultarHistorial](assets/evidencia-code-historial.png)
+
+#### notificarCliente
+Construye el payload de notificación push con título "RapidGo - Actualización
+de pedido" y lo envía a Azure Notification Hubs, que enruta internamente a
+FCM (Android) o APNs (iOS).
+
+![Código - notificarCliente](assets/evidencia-code-notificar.png)
 
 ---
 
 ## 6. Conclusiones
 
-*Pendiente*
+### 6.1 Validación de requerimientos no funcionales
+
+| Requerimiento | Solución implementada | Resultado esperado |
+|---|---|---|
+| Disponibilidad 99.9% | Azure Functions Consumption con SLA de Microsoft | Máximo 44 min inactividad/mes |
+| Latencia < 800 ms P95 | Cosmos DB Serverless en East US 2 | Elimina saturación del monolito |
+| Escalabilidad 500 req/seg | Escalado automático del plan Consumption | Soporta días festivos sin intervención |
+| Pago por uso | Plan Consumption: $0 en horas de baja demanda | Elimina costo fijo de $4.2M COP/mes |
+| Zero-downtime | Despliegue por función independiente | Sin ventanas de mantenimiento |
+| Notificaciones > 95% | Notification Hubs con FCM/APNs nativo | Resuelve tasa de entrega del 67% |
+
+### 6.2 Lecciones aprendidas
+
+**Modelo serverless:** El plan Consumption elimina la gestión de servidores pero
+introduce el *cold start*: la primera invocación de una Function inactiva puede
+tardar entre 1 y 3 segundos adicionales. Para RapidGo esto es mitigable con
+*warm-up triggers* programados antes de las horas pico (11:30am y 5:30pm).
+
+**Cosmos DB y partition key:** La elección de `/clienteId` como clave de
+partición optimiza las consultas de historial agrupando los pedidos por cliente.
+Esta decisión es irreversible una vez cargados los datos, por lo que debe
+analizarse con cuidado antes del despliegue productivo.
+
+**Integración event-driven:** El desacoplamiento entre Functions y Notification
+Hubs mejora la resiliencia: si una notificación falla, no afecta el registro del
+pedido. Esto requiere diseñar políticas de reintento para garantizar entrega eventual.
+
+**API Management:** Es el componente de mayor complejidad de configuración pero
+el de mayor valor estratégico, ya que permite agregar nuevos clientes (app web,
+API pública para restaurantes) sin modificar el código de las Functions.
+
+### 6.3 Proyección a producción
+
+La arquitectura del piloto es la base de una plataforma que puede evolucionar
+hacia analítica en tiempo real con Azure Stream Analytics, gestión de
+repartidores con geolocalización y sistema de pagos integrado, sin necesidad
+de rediseñar los componentes actuales.
+
+---
+
