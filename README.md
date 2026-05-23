@@ -13,7 +13,7 @@
 |-----------------|--------------------|
 | Yeifer Andres Castaño Sariego | Backend / Implementación |
 | Juan David Macea | Documentación / Diagramas |
-| David Castrillon  | [Rol] |
+| David Castrillon  | Documentación/ADRs |
 | Brayan Jaramillo Martinez | [Rol] |
 
 ---
