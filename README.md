@@ -74,34 +74,41 @@ El backend actual es una aplicación monolítica en Node.js desplegada en un ser
 
 ![Diagrama C1 - Contexto](./assets/Diagrama_C1v2.png)
 
-Actores humanos (izquierda — verde azulado)
-Estos son las personas que usan el sistema directamente:
+- Actores humanos (izquierda — verde azulado)
+- Estos son las personas que usan el sistema directamente:
 
-Cliente — es el usuario final de la app. Abre la app, elige un restaurante o tienda, hace el pedido y paga. Su único canal de interacción con RapidGo es a través de la app móvil.
+- Cliente — es el usuario final de la app. Abre la app, elige un restaurante o tienda, hace el pedido y paga. Su único canal de interacción con RapidGo es a través de la app móvil.
 
-Repartidor — tiene su propia vista dentro de la misma app. Recibe el pedido asignado y conforme lo lleva, actualiza el estado: "recogido", "en camino", "entregado". Esas actualizaciones son las que disparan las notificaciones al cliente.
+- Repartidor — tiene su propia vista dentro de la misma app. Recibe el pedido asignado y conforme lo lleva, actualiza el estado: "recogido", "en camino", "entregado". Esas                actualizaciones son las que disparan las notificaciones al cliente.
 
-Administrador — es el equipo interno de RapidGo. Configura el sistema: agrega restaurantes, gestiona reportes de ventas, ajusta comisiones, No usa la app móvil sino un panel administrativo.
+- Administrador — es el equipo interno de RapidGo. Configura el sistema: agrega restaurantes, gestiona reportes de ventas, ajusta comisiones, No usa la app móvil sino un panel            administrativo.
 
-Sistema central (centro — morado)
-En este momento solo se tiene una idea de lo que se necesita para el C1, ya uqe en el momento solo tiene un nombre y solo importa que existe y tiene nombre.
+- Sistema central (centro — morado)
+  En este momento solo se tiene una idea de lo que se necesita para el C1, ya uqe en el momento solo tiene un nombre y solo importa que existe y tiene nombre.
 
+- Sistemas externos (derecha — gris)
 
-Sistemas externos (derecha — gris)
+- Estos son sistemas que RapidGo usa pero no controla ni posee:
 
-Estos son sistemas que RapidGo usa pero no controla ni posee:
+- App móvil (React Native) — es un sistema externo y es el cliente frontend que se comunica con RapidGo via HTTPS. 
 
-App móvil (React Native) — es un sistema externo y es el cliente frontend que se comunica con RapidGo via HTTPS. 
+- Pasarela de pagos — cuando el cliente confirma el pago en la app, la pasarela procesa el cobro y le avisa a RapidGo mediante un webhook (una llamada HTTP automática que dice "el pago fue exitoso"). RapidGo entonces confirma el pedido.
 
-Pasarela de pagos — cuando el cliente confirma el pago en la app, la pasarela procesa el cobro y le avisa a RapidGo mediante un webhook (una llamada HTTP automática que dice "el pago fue exitoso"). RapidGo entonces confirma el pedido.
+- FCM (Firebase Cloud Messaging) — es el servicio de Google que entrega las notificaciones push en Android. RapidGo no le habla directamente a los celulares — le habla a FCM y FCM que se encarga del resto.
 
-FCM (Firebase Cloud Messaging) — es el servicio de Google que entrega las notificaciones push en Android. RapidGo no le habla directamente a los celulares — le habla a FCM y FCM que se encarga del resto.
-
-APNs (Apple Push Notification service) — lo mismo pero para iOS. Toda notificación que llega a un iPhone pasa por los servidores de Apple. Sin integración directa con APNs.
+- APNs (Apple Push Notification service) — lo mismo pero para iOS. Toda notificación que llega a un iPhone pasa por los servidores de Apple. Sin integración directa con APNs.
 
 
 ### C2 — Diagrama de Contenedores
 ![Diagrama C1 - Contexto](./assets/DiagramaC2v2.png)
+
+Flujo del sistema RapidGo:
+
+La aplicación móvil se comunica mediante HTTPS con API Management, que centraliza la autenticación JWT, el control de tráfico y el versionado de APIs. Luego, las solicitudes son procesadas por Azure Functions, donde se ejecuta la lógica principal del sistema, incluyendo registrar pedidos, actualizar estados, consultar historial, notificar clientes y subir comprobantes.
+
+Azure Functions interactúa con Cosmos DB para almacenar pedidos, usuarios y estados de entrega. Además, utiliza Blob Storage para guardar imágenes y comprobantes. Cuando ocurre un cambio en el estado de un pedido, Azure Functions envía notificaciones push mediante Notification Hubs, las cuales son distribuidas a dispositivos Android mediante FCM y a dispositivos iOS mediante APNs.
+
+Finalmente, la pasarela de pagos se integra mediante webhooks HTTPS para confirmar transacciones y actualizar automáticamente la información de los pedidos.
 
 ### C3 — Diagrama de Componentes
 ![Diagrama C3 - Contexto](./assets/Diagram_C3.jpg)
