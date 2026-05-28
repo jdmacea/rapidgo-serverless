@@ -72,7 +72,7 @@ El backend actual es una aplicación monolítica en Node.js desplegada en un ser
 
 ### C1 — Diagrama de Contexto
 
-![Diagrama C1 - Contexto](./assets/Diagrama_C1.png)
+![Diagrama C1 - Contexto](./assets/Diagrama_C1v2.png)
 
 Actores humanos (izquierda — verde azulado)
 Estos son las personas que usan el sistema directamente:
